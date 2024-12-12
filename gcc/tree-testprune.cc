@@ -37,7 +37,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "diagnostic.h"
 #include "dumpfile.h"
 #include "builtins.h"
-//#include <stdlib.h>
 
 // ============================================================= vvv
 // Test pass
@@ -74,43 +73,53 @@ public:
 
 }; // class pass_testprune
 
+bool compare_gimple_functions(gimple_seq g1, gimple_seq g2) {
+    gimple_stmt_iterator gsi1 = gsi_start(g1);
+    gimple_stmt_iterator gsi2 = gsi_start(g2);
+
+    while (!gsi_end_p(gsi1) && !gsi_end_p(gsi2)) {
+        gimple *stmt1 = gsi_stmt(gsi1);
+        gimple *stmt2 = gsi_stmt(gsi2);
+
+        // Check if the statements are equivalent
+        if (!stmt1 || !stmt2 || !simple_cst_equal(stmt1, stmt2)) {
+            return false;
+        }
+
+        gsi_next(&gsi1);
+        gsi_next(&gsi2);
+    }
+
+    return gsi_end_p(gsi1) == gsi_end_p(gsi2);
+}
+
 unsigned int
 pass_testprune::execute (function *fun)
   {
-    basic_block bb;
+     struct cgraph_node *node;
 
-    int bb_cnt = 0, stmt_cnt = 0;
+    FOR_EACH_FUNCTION(node) {
+        if (!node->analyzed)
+            continue;
 
-    FOR_EACH_BB_FN (bb, fun)
-      {
-        bb_cnt++;
-        if (dump_file)
-          {
-            fprintf (dump_file, "===== Basic block count: %d =====\n", bb_cnt);
-          }
-      
-        for (gimple_stmt_iterator gsi = gsi_start_bb (bb); !gsi_end_p (gsi); gsi_next (&gsi))
-          {
-            gimple *g = gsi_stmt (gsi);
-            stmt_cnt++;
-            if (dump_file)
-              {
-                fprintf (dump_file, "----- Statement count: %d -----\n", stmt_cnt);
-                print_gimple_stmt (dump_file, g, 0, TDF_VOPS|TDF_MEMSYMS);
-              }
-         }
-       }
+        std::string function_name = IDENTIFIER_POINTER(DECL_NAME(node->decl));
+        if (function_name.find("_1") != std::string::npos) {
+            size_t pos = function_name.find_last_of("_");
+            std::string base_func_name = function_name.substr(0, pos);
 
+            struct cgraph_node *base_node = node->get_base_function();
+            if (base_node && base_node != node) {
+                if (compare_gimple_functions(base_node->get_body(), node->get_body())) {
+                    fprintf(dump_file, "PRUNE: %s\n", base_func_name.c_str());
+                } else {
+                    fprintf(dump_file, "NOPRUNE: %s\n", base_func_name.c_str());
+                }
+            }
+        }
+    }
     return 0;
-
-    if (dump_file)
-      {
-        fprintf (dump_file, "\n\n##### End diagnostics, start regular dump of current gimple #####\n\n\n");
-      }
-
+    
   }
-   
-      
 } // anon namespace
 
 gimple_opt_pass *
